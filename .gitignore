@@ -1,0 +1,106 @@
+# ==========================================
+# OmniJXL .gitignore
+# ==========================================
+
+# Dependencies & Package Managers
+node_modules/
+package-lock.json.backup
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Frontend & Svelte Build Outputs
+/build/
+/.svelte-kit/
+/dist/
+/package/
+.env
+.env.*
+!.env.example
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*
+
+# Rust & Cargo Targets
+/target/
+src-tauri/target/
+**/*.rs.bk
+*.pdb
+
+# Tauri Generated Files & Schemas
+src-tauri/gen/schemas/
+src-tauri/gen/android/
+src-tauri/gen/apple/
+
+# Operating System Files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# IDE & Editor Configurations
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+*.suo
+*.ntvs*
+*.njsproj
+*.sln.docstates
+*.user
+*.userosv
+
+# Secrets, Credentials, Keys & Certificates
+*.pem
+*.key
+*.cert
+*.crt
+*.pfx
+*.p12
+*.jks
+id_rsa
+id_rsa.pub
+id_ed25519
+id_ed25519.pub
+secrets.json
+credentials.json
+token.json
+*.token
+
+# Temporary Files, Logs & Scratch Artifacts
+*.tmp
+*.temp
+tmp/
+temp/
+logs/
+*.log
+*.bak
+*.swp
+*~
+*.dmp
+*.ps1.log
+transcript*.jsonl
+
+# Python Caches & Helper Scripts
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Test Outputs & Generated Media Artifacts
+test_output/
+test_exports/
+test_sample*
+JXL_Exports/
+*.jxl
+
+# Local Agent & Configuration Roots
+.agents/
+.gemini/
+.claude/
+scratch/

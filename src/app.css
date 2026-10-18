@@ -1,0 +1,59 @@
+@import "tailwindcss";
+
+@theme {
+  --color-brand-50: #eff6ff;
+  --color-brand-400: #60a5fa;
+  --color-brand-500: #3b82f6;
+  --color-brand-600: #2563eb;
+  --color-brand-700: #1d4ed8;
+
+  --color-jxl-teal: #0df2c9;
+  --color-jxl-blue: #2b7fff;
+  --color-jxl-indigo: #6366f1;
+
+  --color-surface-900: #0b0f17;
+  --color-surface-850: #111724;
+  --color-surface-800: #172033;
+  --color-surface-700: #1f2c44;
+  --color-surface-600: #2e3e5c;
+
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
+}
+
+/* Custom scrollbar for sleek desktop feel */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.6);
+}
+::-webkit-scrollbar-thumb {
+  background: #2e3e5c;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #475569;
+}
+
+.glass-panel {
+  background: rgba(17, 23, 36, 0.78);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.neon-glow {
+  box-shadow: 0 0 25px -5px rgba(13, 242, 201, 0.25);
+}
+
+.neon-glow-blue {
+  box-shadow: 0 0 25px -5px rgba(43, 127, 255, 0.25);
+}
+
+.file-dropzone.dragover {
+  border-color: #0df2c9 !important;
+  background: rgba(13, 242, 201, 0.06) !important;
+  transform: scale(0.995);
+}

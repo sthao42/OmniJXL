@@ -1,0 +1,43 @@
+[package]
+name = "omnijxl"
+version = "0.1.0"
+description = "OmniJXL - High Performance JPEG XL Converter"
+authors = ["OmniJXL Team"]
+edition = "2024"
+rust-version = "1.99.1"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+name = "omnijxl_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-fs = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rayon = "1.10"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif", "bmp", "tiff", "hdr", "exr", "qoi"] }
+nom-exif = "3.8"
+which = "7.0"
+tempfile = "3.17"
+num_cpus = "1.16"
+base64 = "0.22"
+chrono = { version = "0.4", features = ["serde"] }
+flate2 = "1.0"
+brotli = "9.0.0"
+
+
+# Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = 3
+panic = "abort"
+strip = true

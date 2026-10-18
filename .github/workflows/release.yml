@@ -1,0 +1,150 @@
+name: 'Release & Production Build'
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Release Tag (e.g. v0.1.0)'
+        required: false
+        default: 'v0.1.0'
+      draft:
+        description: 'Create draft release'
+        type: boolean
+        default: false
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build-and-release:
+    name: ${{ matrix.platform == 'macos-latest' && 'macOS Universal (Apple Silicon & Intel)' || 'Windows x86_64 (.exe & .msi)' }}
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Windows Runner: Builds standalone .exe, NSIS installer (.exe), and WiX (.msi)
+          - platform: 'windows-latest'
+            target: 'x86_64-pc-windows-msvc'
+            args: '--target x86_64-pc-windows-msvc'
+            artifact_name: 'OmniJXL-Windows-x64'
+
+          # macOS Runner: Native Apple Silicon VM building Universal Binary (M1/M2/M3/M4 & Intel) .dmg
+          - platform: 'macos-latest'
+            target: 'universal-apple-darwin'
+            args: '--target universal-apple-darwin'
+            artifact_name: 'OmniJXL-macOS-Universal'
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: 'npm'
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          # For universal-apple-darwin, install both aarch64 (Apple Silicon) and x86_64 (Intel) targets
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || 'x86_64-pc-windows-msvc' }}
+
+      - name: Rust Cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: Install macOS Dependencies
+        if: matrix.platform == 'macos-latest'
+        run: |
+          brew install jpeg-xl
+
+      - name: Install Windows Dependencies
+        if: matrix.platform == 'windows-latest'
+        run: |
+          choco install wixtoolset -y || true
+
+      - name: Install Frontend Dependencies
+        run: npm ci
+
+      - name: Build SvelteKit Frontend
+        run: npm run build
+
+      - name: Run Backend Unit & Security Tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml
+
+      - name: Build & Package with Official Tauri Action
+        id: tauri-build
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        with:
+          tagName: ${{ github.ref_type == 'tag' && github.ref_name || inputs.release_tag }}
+          releaseName: 'OmniJXL ${{ github.ref_type == 'tag' && github.ref_name || inputs.release_tag }}'
+          releaseBody: |
+            ## OmniJXL Production Release
+
+            High-performance, bidirectional JPEG XL conversion engine with full ComfyUI workflow preservation and defensive memory limits.
+
+            ### Included Installers & Binaries:
+            - **Windows (x86_64)**:
+              - `OmniJXL_*_x64-setup.exe` (NSIS Installer)
+              - `OmniJXL_*_x64_en-US.msi` (Windows MSI Installer)
+              - `OmniJXL_standalone_x64.exe` (Standalone Portable Executable)
+            - **macOS Universal (Apple Silicon M1/M2/M3/M4 & Intel)**:
+              - `OmniJXL_*_universal.dmg` (Drag-and-Drop Disk Image)
+              - `OmniJXL_*_universal.app.tar.gz` (macOS Application Bundle)
+          releaseDraft: ${{ github.event_name == 'workflow_dispatch' && inputs.draft || false }}
+          prerelease: false
+          args: ${{ matrix.args }}
+
+      - name: Prepare Windows Standalone Portable Executable
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        run: |
+          if (Test-Path "src-tauri/target/x86_64-pc-windows-msvc/release/omnijxl.exe") {
+            Copy-Item "src-tauri/target/x86_64-pc-windows-msvc/release/omnijxl.exe" "OmniJXL_standalone_x64.exe"
+            Write-Host "Created OmniJXL_standalone_x64.exe from target/x86_64-pc-windows-msvc/release"
+          } elseif (Test-Path "src-tauri/target/release/omnijxl.exe") {
+            Copy-Item "src-tauri/target/release/omnijxl.exe" "OmniJXL_standalone_x64.exe"
+            Write-Host "Created OmniJXL_standalone_x64.exe from target/release"
+          }
+
+      - name: Attach Standalone Executable to GitHub Release
+        if: matrix.platform == 'windows-latest' && (github.ref_type == 'tag' || (github.event_name == 'workflow_dispatch' && inputs.release_tag != ''))
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.ref_type == 'tag' && github.ref_name || inputs.release_tag }}"
+          if [ -f "OmniJXL_standalone_x64.exe" ]; then
+            gh release upload "$TAG" OmniJXL_standalone_x64.exe --clobber || true
+          fi
+
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: |
+            OmniJXL_standalone_x64.exe
+            src-tauri/target/**/bundle/msi/*.msi
+            src-tauri/target/**/bundle/nsis/*-setup.exe
+            src-tauri/target/**/bundle/dmg/*.dmg
+            src-tauri/target/**/bundle/macos/*.app.tar.gz
+          if-no-files-found: warn
