@@ -70,7 +70,6 @@
   bind:this={folderInput}
   on:change={handleHtmlFolder}
   webkitdirectory
-  directory
   multiple
   class="hidden"
 />

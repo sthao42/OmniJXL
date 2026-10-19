@@ -7,8 +7,9 @@
     activeFolderStore,
     queueStatsStore,
     convertAll,
+    cancelBatch,
   } from '../stores/queue';
-  import { RefreshCw } from '@lucide/svelte';
+  import { RefreshCw, Square } from '@lucide/svelte';
 
   $: hasConvertibleItems =
     $itemsStore.some((i) => i.status !== 'done') ||
@@ -41,8 +42,19 @@
     {/if}
   </div>
 
-  <!-- Primary CTA Convert Button -->
-  <div class="flex items-center space-x-3 shrink-0">
+  <!-- Primary CTA Convert / Cancel Button -->
+  <div class="flex items-center space-x-2.5 shrink-0">
+    {#if $isProcessingStore}
+      <button
+        on:click={cancelBatch}
+        class="px-4 py-2.5 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 font-bold text-xs shadow-lg transition-all flex items-center space-x-2 cursor-pointer active:scale-95"
+        title="Immediately cancel remaining batch items"
+      >
+        <Square class="w-3.5 h-3.5 text-rose-400 fill-rose-400" />
+        <span>Stop</span>
+      </button>
+    {/if}
+
     <button
       on:click={convertAll}
       disabled={!hasConvertibleItems || $isProcessingStore}
@@ -51,7 +63,7 @@
       <RefreshCw
         class={`w-4 h-4 text-surface-900 ${$isProcessingStore ? 'animate-spin' : ''}`}
       />
-      <span>Convert All to .JXL</span>
+      <span>{$isProcessingStore ? 'Encoding...' : 'Convert All to .JXL'}</span>
     </button>
   </div>
 </div>

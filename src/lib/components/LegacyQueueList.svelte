@@ -4,9 +4,12 @@
     legacyActiveFolderStore,
     legacyFolderProgressStore,
     formatBytes,
+    isLegacyProcessingStore,
+    cancelBatch,
+    clearLegacyActiveFolder,
   } from '../stores/queue';
   import LegacyQueueItemCard from './LegacyQueueItemCard.svelte';
-  import { FileDown, FolderCheck, Zap } from '@lucide/svelte';
+  import { FileDown, FolderCheck, Zap, Square, X } from '@lucide/svelte';
 </script>
 
 <div class="flex-1 overflow-y-auto space-y-2.5 pr-1 min-h-0">
@@ -40,9 +43,30 @@
             </p>
 
             <p class="text-[11px] text-slate-400 mt-1.5 leading-relaxed">
-              Thumbnail previews deferred. .JXL files will be converted back to PNG / JPG directly in parallel without UI stalls.
+              Sequential pipeline active. .JXL files are loaded and converted one by one in sequence without UI stalls or CPU throttling.
             </p>
           </div>
+        </div>
+
+        <div class="flex items-center space-x-2 shrink-0">
+          {#if $isLegacyProcessingStore}
+            <button
+              on:click={cancelBatch}
+              class="px-2.5 py-1.5 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 text-[11px] font-mono flex items-center space-x-1.5 transition-all cursor-pointer active:scale-95"
+              title="Stop legacy folder batch"
+            >
+              <Square class="w-3 h-3 text-rose-400 fill-rose-400" />
+              <span>Stop</span>
+            </button>
+          {:else}
+            <button
+              on:click={clearLegacyActiveFolder}
+              class="p-1.5 rounded-lg hover:bg-white/10 text-slate-400 hover:text-slate-200 text-xs transition-colors cursor-pointer"
+              title="Remove folder"
+            >
+              <X class="w-4 h-4" />
+            </button>
+          {/if}
         </div>
       </div>
 

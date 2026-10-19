@@ -5,9 +5,11 @@
     folderProgressStore,
     formatBytes,
     isProcessingStore,
+    cancelBatch,
+    clearActiveFolder,
   } from '../stores/queue';
   import QueueItemCard from './QueueItemCard.svelte';
-  import { Images, FolderCheck, Cpu, Zap } from '@lucide/svelte';
+  import { Images, FolderCheck, Cpu, Zap, Square, X } from '@lucide/svelte';
 </script>
 
 <div class="flex-1 overflow-y-auto space-y-2.5 pr-1 min-h-0">
@@ -41,9 +43,30 @@
             </p>
 
             <p class="text-[11px] text-slate-400 mt-1.5 leading-relaxed">
-              Thumbnail previews deferred for maximum performance. Image files will be parallel-encoded directly with Rayon worker threads without UI freezing.
+              Sequential pipeline active. Images are loaded and processed one by one in sequence to prevent CPU throttling, memory spikes, and system unresponsiveness.
             </p>
           </div>
+        </div>
+
+        <div class="flex items-center space-x-2 shrink-0">
+          {#if $isProcessingStore}
+            <button
+              on:click={cancelBatch}
+              class="px-2.5 py-1.5 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 text-[11px] font-mono flex items-center space-x-1.5 transition-all cursor-pointer active:scale-95"
+              title="Stop folder batch"
+            >
+              <Square class="w-3 h-3 text-rose-400 fill-rose-400" />
+              <span>Stop</span>
+            </button>
+          {:else}
+            <button
+              on:click={clearActiveFolder}
+              class="p-1.5 rounded-lg hover:bg-white/10 text-slate-400 hover:text-slate-200 text-xs transition-colors cursor-pointer"
+              title="Remove folder"
+            >
+              <X class="w-4 h-4" />
+            </button>
+          {/if}
         </div>
       </div>
 

@@ -247,63 +247,109 @@ pub fn prepare_extended_format(
     Ok(temp_img_path)
 }
 
-pub fn scan_folder_for_images(dir_path: &Path) -> Vec<PathBuf> {
+#[derive(Debug, Clone)]
+pub struct ScannedFolderInfo {
+    pub paths: Vec<PathBuf>,
+    pub total_bytes: u64,
+}
+
+pub fn scan_folder_for_images_with_size(dir_path: &Path) -> ScannedFolderInfo {
     let mut results = Vec::new();
+    let mut total_bytes = 0u64;
     let mut stack = vec![dir_path.to_path_buf()];
 
     while let Some(current) = stack.pop() {
         if let Ok(entries) = std::fs::read_dir(&current) {
             for entry in entries.flatten() {
-                let path = entry.path();
-                if path.is_dir() {
-                    stack.push(path);
-                } else if path.is_file() {
-                    let ext = path
-                        .extension()
-                        .and_then(|e| e.to_str())
-                        .unwrap_or("")
-                        .to_lowercase();
-                    match ext.as_str() {
-                        "png" | "jpg" | "jpeg" | "webp" | "avif" | "tiff" | "tif" | "bmp"
-                        | "gif" | "exr" | "hdr" | "ico" | "tga" | "cr2" | "nef" | "arw" | "dng"
-                        | "rw2" | "orf" | "ppm" | "pnm" | "pfm" | "pam" | "pgx" => {
-                            results.push(path);
+                let file_name = entry.file_name();
+                let file_name_str = file_name.to_string_lossy();
+                // Skip hidden files/directories and system folders
+                if file_name_str.starts_with('.') || file_name_str.starts_with('$') {
+                    continue;
+                }
+
+                if let Ok(file_type) = entry.file_type() {
+                    if file_type.is_dir() {
+                        stack.push(entry.path());
+                    } else if file_type.is_file() {
+                        let path = entry.path();
+                        let ext = path
+                            .extension()
+                            .and_then(|e| e.to_str())
+                            .unwrap_or("")
+                            .to_lowercase();
+                        match ext.as_str() {
+                            "png" | "jpg" | "jpeg" | "webp" | "avif" | "tiff" | "tif" | "bmp"
+                            | "gif" | "exr" | "hdr" | "ico" | "tga" | "cr2" | "nef" | "arw"
+                            | "dng" | "rw2" | "orf" | "ppm" | "pnm" | "pfm" | "pam" | "pgx" => {
+                                if let Ok(meta) = entry.metadata() {
+                                    total_bytes += meta.len();
+                                }
+                                results.push(path);
+                            }
+                            _ => {}
                         }
-                        _ => {}
                     }
                 }
             }
         }
     }
     results.sort();
-    results
+    ScannedFolderInfo {
+        paths: results,
+        total_bytes,
+    }
+}
+
+pub fn scan_folder_for_images(dir_path: &Path) -> Vec<PathBuf> {
+    scan_folder_for_images_with_size(dir_path).paths
+}
+
+pub fn scan_folder_for_jxl_with_size(dir_path: &Path) -> ScannedFolderInfo {
+    let mut results = Vec::new();
+    let mut total_bytes = 0u64;
+    let mut stack = vec![dir_path.to_path_buf()];
+
+    while let Some(current) = stack.pop() {
+        if let Ok(entries) = std::fs::read_dir(&current) {
+            for entry in entries.flatten() {
+                let file_name = entry.file_name();
+                let file_name_str = file_name.to_string_lossy();
+                // Skip hidden files/directories and system folders
+                if file_name_str.starts_with('.') || file_name_str.starts_with('$') {
+                    continue;
+                }
+
+                if let Ok(file_type) = entry.file_type() {
+                    if file_type.is_dir() {
+                        stack.push(entry.path());
+                    } else if file_type.is_file() {
+                        let path = entry.path();
+                        let ext = path
+                            .extension()
+                            .and_then(|e| e.to_str())
+                            .unwrap_or("")
+                            .to_lowercase();
+                        if ext == "jxl" {
+                            if let Ok(meta) = entry.metadata() {
+                                total_bytes += meta.len();
+                            }
+                            results.push(path);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    results.sort();
+    ScannedFolderInfo {
+        paths: results,
+        total_bytes,
+    }
 }
 
 pub fn scan_folder_for_jxl(dir_path: &Path) -> Vec<PathBuf> {
-    let mut results = Vec::new();
-    let mut stack = vec![dir_path.to_path_buf()];
-
-    while let Some(current) = stack.pop() {
-        if let Ok(entries) = std::fs::read_dir(&current) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.is_dir() {
-                    stack.push(path);
-                } else if path.is_file() {
-                    let ext = path
-                        .extension()
-                        .and_then(|e| e.to_str())
-                        .unwrap_or("")
-                        .to_lowercase();
-                    if ext == "jxl" {
-                        results.push(path);
-                    }
-                }
-            }
-        }
-    }
-    results.sort();
-    results
+    scan_folder_for_jxl_with_size(dir_path).paths
 }
 
 pub fn read_jxl_dimensions(path: &Path) -> (u32, u32) {

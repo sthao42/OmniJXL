@@ -204,6 +204,7 @@ export async function addFilesFromPaths(paths: string[]) {
 export async function addFolderFromPath(folderPath: string) {
   if (!folderPath) return;
 
+  overallStatusStore.set(`Scanning folder "${folderPath.split(/[/\\]/).pop() || 'folder'}"...`);
   try {
     const { invoke } = await import('@tauri-apps/api/core');
     const summary = await invoke<FolderScanSummary>('cmd_scan_folder_summary', {
@@ -211,14 +212,17 @@ export async function addFolderFromPath(folderPath: string) {
     });
     if (!summary || summary.image_count === 0) {
       showToast('No supported image files found in folder');
+      overallStatusStore.set('Ready');
       return;
     }
 
     activeFolderStore.set(summary);
     folderProgressStore.set(null);
+    overallStatusStore.set(`Ready: ${summary.image_count} images found in folder`);
     showToast(`Found ${summary.image_count} image files in "${summary.folder_name}"`);
   } catch (err) {
     console.warn('Native folder scan failed:', err);
+    overallStatusStore.set('Folder scan failed');
     showToast(`Failed to scan folder: ${err}`);
   }
 }
@@ -259,6 +263,18 @@ export function handleProgressEvent(update: ProgressUpdate) {
   );
 }
 
+export async function cancelBatch() {
+  try {
+    const { invoke } = await import('@tauri-apps/api/core');
+    await invoke('cmd_cancel_batch');
+    overallStatusStore.set('Stopping batch process...');
+    legacyStatusStore.set('Stopping batch process...');
+    showToast('Stopping batch conversion...');
+  } catch (err) {
+    console.warn('Failed to invoke cmd_cancel_batch:', err);
+  }
+}
+
 export async function convertAll() {
   const activeFolder = get(activeFolderStore);
   const items = get(itemsStore);
@@ -269,8 +285,8 @@ export async function convertAll() {
   if (get(isProcessingStore)) return;
 
   isProcessingStore.set(true);
-  overallStatusStore.set('Encoding in parallel with Rayon...');
-  throughputStore.set('High-Throughput SIMD');
+  overallStatusStore.set('Encoding images in sequence...');
+  throughputStore.set('Sequential Pipeline (No-Stall)');
 
   const profile = get(settingsStore);
 
@@ -279,12 +295,12 @@ export async function convertAll() {
 
     // 1. Convert active folder batch directly if present
     if (hasFolderWork && activeFolder) {
-      overallStatusStore.set(`Processing folder "${activeFolder.folder_name}"...`);
+      overallStatusStore.set(`Processing folder "${activeFolder.folder_name}" sequentially...`);
       folderProgressStore.set({
         total: activeFolder.image_count,
         completed: 0,
         failed: 0,
-        current_file: 'Scanning files...',
+        current_file: 'Initializing batch sequence...',
         orig_bytes_completed: 0,
         target_bytes_completed: 0,
       });
@@ -304,7 +320,7 @@ export async function convertAll() {
 
     // 2. Convert queued individual items if present
     if (pending.length > 0) {
-      overallStatusStore.set('Encoding individual queued images...');
+      overallStatusStore.set('Encoding queued images in sequence...');
       const results = await invoke<any[]>('cmd_convert_batch', {
         items: pending,
         profile,
@@ -330,15 +346,19 @@ export async function convertAll() {
 
     showToast('Finished encoding batch to .jxl');
   } catch (err) {
-    console.warn('Native batch convert error or fallback:', err);
-    // Simulation fallback for web preview
-    for (const item of pending) {
-      await simulateConvertItem(item, profile);
+    console.warn('Native batch convert error:', err);
+    const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+    if (!isTauri) {
+      // Simulation fallback for web preview outside Tauri
+      for (const item of pending) {
+        await simulateConvertItem(item, profile);
+      }
+      showToast('Batch conversion finished (preview)');
+    } else {
+      showToast(`Batch stopped or error: ${err}`);
     }
-    showToast('Batch conversion finished');
   } finally {
     isProcessingStore.set(false);
-    overallStatusStore.set('Batch completed');
     throughputStore.set('Idle');
   }
 }
@@ -409,6 +429,7 @@ export async function addJxlFilesFromPaths(paths: string[]) {
 export async function addJxlFolderFromPath(folderPath: string) {
   if (!folderPath) return;
 
+  legacyStatusStore.set(`Scanning folder "${folderPath.split(/[/\\]/).pop() || 'folder'}"...`);
   try {
     const { invoke } = await import('@tauri-apps/api/core');
     const summary = await invoke<FolderScanSummary>('cmd_scan_folder_jxl_summary', {
@@ -416,14 +437,17 @@ export async function addJxlFolderFromPath(folderPath: string) {
     });
     if (!summary || summary.image_count === 0) {
       showToast('No .jxl image files found in folder');
+      legacyStatusStore.set('Ready');
       return;
     }
 
     legacyActiveFolderStore.set(summary);
     legacyFolderProgressStore.set(null);
+    legacyStatusStore.set(`Ready: ${summary.image_count} .jxl images found in folder`);
     showToast(`Found ${summary.image_count} .jxl files in "${summary.folder_name}"`);
   } catch (err) {
     console.warn('Native JXL folder scan failed:', err);
+    legacyStatusStore.set('Folder scan failed');
     showToast(`Failed to scan folder: ${err}`);
   }
 }
@@ -475,19 +499,19 @@ export async function convertLegacyAll() {
 
   isLegacyProcessingStore.set(true);
   const profile = get(legacySettingsStore);
-  legacyStatusStore.set(`Unpacking .jxl to ${profile.target_format.toUpperCase()} in parallel...`);
+  legacyStatusStore.set(`Unpacking .jxl to ${profile.target_format.toUpperCase()} in sequence...`);
 
   try {
     const { invoke } = await import('@tauri-apps/api/core');
 
     // 1. Convert active legacy folder batch directly if present
     if (hasFolderWork && legacyFolder) {
-      legacyStatusStore.set(`Unpacking folder "${legacyFolder.folder_name}"...`);
+      legacyStatusStore.set(`Unpacking folder "${legacyFolder.folder_name}" sequentially...`);
       legacyFolderProgressStore.set({
         total: legacyFolder.image_count,
         completed: 0,
         failed: 0,
-        current_file: 'Scanning files...',
+        current_file: 'Initializing batch sequence...',
         orig_bytes_completed: 0,
         target_bytes_completed: 0,
       });
@@ -536,7 +560,6 @@ export async function convertLegacyAll() {
     showToast(`Conversion error: ${err}`);
   } finally {
     isLegacyProcessingStore.set(false);
-    legacyStatusStore.set('Conversion completed');
   }
 }
 
@@ -548,6 +571,11 @@ export async function handleDroppedPaths(
 
   const currentTab = get(activeTabStore);
   const isJxl = currentTab === 'legacy';
+  if (isJxl) {
+    legacyStatusStore.set('Scanning dropped paths...');
+  } else {
+    overallStatusStore.set('Scanning dropped paths...');
+  }
 
   try {
     const { invoke } = await import('@tauri-apps/api/core');

@@ -1,11 +1,23 @@
-use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{AppHandle, Emitter};
 
 use super::formats::ImageItemInfo;
 use super::jxl::{ConversionResult, EncodingProfile, convert_single_image};
+
+pub static BATCH_CANCELLED: AtomicBool = AtomicBool::new(false);
+
+pub fn cancel_batch() {
+    BATCH_CANCELLED.store(true, Ordering::SeqCst);
+}
+
+pub fn reset_cancel_flag() {
+    BATCH_CANCELLED.store(false, Ordering::SeqCst);
+}
+
+pub fn is_batch_cancelled() -> bool {
+    BATCH_CANCELLED.load(Ordering::SeqCst)
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProgressUpdate {
@@ -37,17 +49,21 @@ pub fn execute_batch(
     items: Vec<ImageItemInfo>,
     profile: EncodingProfile,
 ) -> Vec<ConversionResult> {
-    let start_all = std::time::Instant::now();
-    let completed_count = Arc::new(AtomicUsize::new(0));
+    reset_cancel_flag();
+    let mut results = Vec::with_capacity(items.len());
 
-    // Emit initial 'converting' signal for items
+    // Process each queued image in sequence without launching all threads concurrently
     for item in &items {
+        if is_batch_cancelled() {
+            break;
+        }
+
         let _ = app.emit(
             "conversion-progress",
             ProgressUpdate {
                 id: item.id.clone(),
                 status: "converting".to_string(),
-                progress: 10,
+                progress: 40,
                 target_size: None,
                 savings_bytes: None,
                 savings_percent: None,
@@ -55,51 +71,26 @@ pub fn execute_batch(
                 error_message: None,
             },
         );
+
+        let res = convert_single_image(item, &profile);
+
+        let _ = app.emit(
+            "conversion-progress",
+            ProgressUpdate {
+                id: res.id.clone(),
+                status: res.status.clone(),
+                progress: 100,
+                target_size: res.target_size,
+                savings_bytes: res.savings_bytes,
+                savings_percent: res.savings_percent,
+                time_ms: res.time_ms,
+                error_message: res.error_message.clone(),
+            },
+        );
+
+        results.push(res);
+        std::thread::sleep(std::time::Duration::from_millis(50));
     }
-
-    // Run parallel conversions via Rayon
-    let results: Vec<ConversionResult> = items
-        .par_iter()
-        .map(|item| {
-            // Emit progress 40% before heavy SIMD pass
-            let _ = app.emit(
-                "conversion-progress",
-                ProgressUpdate {
-                    id: item.id.clone(),
-                    status: "converting".to_string(),
-                    progress: 40,
-                    target_size: None,
-                    savings_bytes: None,
-                    savings_percent: None,
-                    time_ms: None,
-                    error_message: None,
-                },
-            );
-
-            let res = convert_single_image(item, &profile);
-
-            completed_count.fetch_add(1, Ordering::SeqCst);
-
-            // Emit completion progress event
-            let _ = app.emit(
-                "conversion-progress",
-                ProgressUpdate {
-                    id: res.id.clone(),
-                    status: res.status.clone(),
-                    progress: 100,
-                    target_size: res.target_size,
-                    savings_bytes: res.savings_bytes,
-                    savings_percent: res.savings_percent,
-                    time_ms: res.time_ms,
-                    error_message: res.error_message.clone(),
-                },
-            );
-
-            res
-        })
-        .collect();
-
-    let _total_elapsed = start_all.elapsed().as_millis() as u64;
 
     results
 }
@@ -120,12 +111,14 @@ pub fn execute_folder_batch(
     folder_path: &str,
     profile: EncodingProfile,
 ) -> Result<BatchSummary, String> {
+    reset_cancel_flag();
     let dir = std::path::PathBuf::from(folder_path);
     if !dir.is_dir() {
         return Err(format!("Not a valid directory: {}", folder_path));
     }
 
-    let image_paths = super::formats::scan_folder_for_images(&dir);
+    let scanned = super::formats::scan_folder_for_images_with_size(&dir);
+    let image_paths = scanned.paths;
     let total_count = image_paths.len();
     if total_count == 0 {
         return Ok(BatchSummary {
@@ -142,12 +135,29 @@ pub fn execute_folder_batch(
     }
 
     let start_all = std::time::Instant::now();
-    let completed_count = Arc::new(AtomicUsize::new(0));
-    let failed_count = Arc::new(AtomicUsize::new(0));
-    let orig_bytes = Arc::new(std::sync::atomic::AtomicU64::new(0));
-    let target_bytes = Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let mut completed_count = 0usize;
+    let mut failed_count = 0usize;
+    let mut orig_bytes = 0u64;
+    let mut target_bytes = 0u64;
 
-    image_paths.par_iter().for_each(|path| {
+    // Process each individual image in sequence without loading or running the whole batch concurrently
+    for (idx, path) in image_paths.iter().enumerate() {
+        if is_batch_cancelled() {
+            let _ = app.emit(
+                "folder-conversion-progress",
+                FolderBatchProgress {
+                    total: total_count,
+                    completed: completed_count,
+                    failed: failed_count,
+                    current_file: "Conversion stopped by user".to_string(),
+                    orig_bytes_completed: orig_bytes,
+                    target_bytes_completed: target_bytes,
+                    is_done: true,
+                },
+            );
+            break;
+        }
+
         let path_str = path.to_string_lossy();
         let file_name = path
             .file_name()
@@ -155,50 +165,63 @@ pub fn execute_folder_batch(
             .unwrap_or("image")
             .to_string();
 
-        if let Ok(item) = super::formats::inspect_image_without_thumbnail(&path_str) {
-            let res = convert_single_image(&item, &profile);
-            if res.status == "done" {
-                completed_count.fetch_add(1, Ordering::SeqCst);
-                if let Some(target) = res.target_size {
-                    target_bytes.fetch_add(target, Ordering::SeqCst);
-                }
-                orig_bytes.fetch_add(item.orig_size, Ordering::SeqCst);
-            } else {
-                failed_count.fetch_add(1, Ordering::SeqCst);
-            }
-        } else {
-            failed_count.fetch_add(1, Ordering::SeqCst);
-        }
-
-        let done = completed_count.load(Ordering::SeqCst);
-        let fails = failed_count.load(Ordering::SeqCst);
+        // 1. Emit progress showing which specific image is currently being encoded
         let _ = app.emit(
             "folder-conversion-progress",
             FolderBatchProgress {
                 total: total_count,
-                completed: done,
-                failed: fails,
-                current_file: file_name,
-                orig_bytes_completed: orig_bytes.load(Ordering::SeqCst),
-                target_bytes_completed: target_bytes.load(Ordering::SeqCst),
+                completed: completed_count,
+                failed: failed_count,
+                current_file: format!("Processing ({}/{}): {}", idx + 1, total_count, file_name),
+                orig_bytes_completed: orig_bytes,
+                target_bytes_completed: target_bytes,
                 is_done: false,
             },
         );
-    });
+
+        // 2. Load & inspect only this single image into memory
+        if let Ok(item) = super::formats::inspect_image_without_thumbnail(&path_str) {
+            // 3. Convert this single image
+            let res = convert_single_image(&item, &profile);
+            if res.status == "done" {
+                completed_count += 1;
+                if let Some(target) = res.target_size {
+                    target_bytes += target;
+                }
+                orig_bytes += item.orig_size;
+            } else {
+                failed_count += 1;
+            }
+        } else {
+            failed_count += 1;
+        }
+
+        // 4. Emit updated progress after this single image completes
+        let _ = app.emit(
+            "folder-conversion-progress",
+            FolderBatchProgress {
+                total: total_count,
+                completed: completed_count,
+                failed: failed_count,
+                current_file: file_name,
+                orig_bytes_completed: orig_bytes,
+                target_bytes_completed: target_bytes,
+                is_done: false,
+            },
+        );
+
+        // Cooperative cooling & OS scheduling yield
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
 
     let total_elapsed = start_all.elapsed().as_millis() as u64;
-    let final_orig = orig_bytes.load(Ordering::SeqCst);
-    let final_target = target_bytes.load(Ordering::SeqCst);
-    let final_completed = completed_count.load(Ordering::SeqCst);
-    let final_failed = failed_count.load(Ordering::SeqCst);
-
-    let savings_bytes = if final_orig > final_target {
-        (final_orig - final_target) as i64
+    let savings_bytes = if orig_bytes > target_bytes {
+        (orig_bytes - target_bytes) as i64
     } else {
         0
     };
-    let savings_percent = if final_orig > 0 {
-        ((savings_bytes as f64 / final_orig as f64) * 100.0) as i32
+    let savings_percent = if orig_bytes > 0 {
+        ((savings_bytes as f64 / orig_bytes as f64) * 100.0) as i32
     } else {
         0
     };
@@ -207,21 +230,25 @@ pub fn execute_folder_batch(
         "folder-conversion-progress",
         FolderBatchProgress {
             total: total_count,
-            completed: final_completed,
-            failed: final_failed,
-            current_file: "Completed".to_string(),
-            orig_bytes_completed: final_orig,
-            target_bytes_completed: final_target,
+            completed: completed_count,
+            failed: failed_count,
+            current_file: if is_batch_cancelled() {
+                "Stopped".to_string()
+            } else {
+                "Completed".to_string()
+            },
+            orig_bytes_completed: orig_bytes,
+            target_bytes_completed: target_bytes,
             is_done: true,
         },
     );
 
     Ok(BatchSummary {
         total_items: total_count,
-        completed_items: final_completed,
-        failed_items: final_failed,
-        orig_total_bytes: final_orig,
-        target_total_bytes: final_target,
+        completed_items: completed_count,
+        failed_items: failed_count,
+        orig_total_bytes: orig_bytes,
+        target_total_bytes: target_bytes,
         total_savings_bytes: savings_bytes,
         total_savings_percent: savings_percent,
         total_duration_ms: total_elapsed,

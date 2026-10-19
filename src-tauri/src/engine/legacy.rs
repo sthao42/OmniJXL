@@ -124,10 +124,20 @@ pub fn convert_single_jxl_to_legacy(
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x08000000);
+        // CREATE_NO_WINDOW (0x08000000) | BELOW_NORMAL_PRIORITY_CLASS (0x00004000)
+        cmd.creation_flags(0x08000000 | 0x00004000);
     }
+    cmd.stdin(std::process::Stdio::null());
+    cmd.stdout(std::process::Stdio::piped());
+    cmd.stderr(std::process::Stdio::piped());
     cmd.arg(&abs_input);
     cmd.arg(&abs_target);
+
+    let sys_threads = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4);
+    let worker_threads = (sys_threads / 2).clamp(1, 4);
+    cmd.arg(format!("--num_threads={}", worker_threads));
 
     if target_ext == "jpg" && !profile.reconstruct_jpeg {
         let q = profile.jpeg_quality.clamp(60, 100);
@@ -136,7 +146,8 @@ pub fn convert_single_jxl_to_legacy(
 
     cmd.arg("--quiet");
 
-    match cmd.output() {
+    let timeout = std::time::Duration::from_secs(120);
+    match super::jxl::run_command_with_timeout(cmd, timeout, super::batch::is_batch_cancelled) {
         Ok(output) => {
             let elapsed_ms = start_time.elapsed().as_millis() as u64;
 
@@ -223,40 +234,45 @@ pub fn execute_legacy_batch(
     items: Vec<ImageItemInfo>,
     profile: LegacyExportProfile,
 ) -> Vec<ConversionResult> {
-    use rayon::prelude::*;
+    super::batch::reset_cancel_flag();
+    let mut results = Vec::with_capacity(items.len());
 
-    items
-        .into_par_iter()
-        .map(|item| {
-            let _ = app.emit(
-                "legacy-conversion-progress",
-                serde_json::json!({
-                    "id": item.id,
-                    "status": "converting",
-                    "progress": 30,
-                    "target_size": null,
-                    "time_ms": null,
-                    "error_message": null
-                }),
-            );
+    for item in items {
+        if super::batch::is_batch_cancelled() {
+            break;
+        }
 
-            let res = convert_single_jxl_to_legacy(&item, &profile);
+        let _ = app.emit(
+            "legacy-conversion-progress",
+            serde_json::json!({
+                "id": item.id,
+                "status": "converting",
+                "progress": 30,
+                "target_size": null,
+                "time_ms": null,
+                "error_message": null
+            }),
+        );
 
-            let _ = app.emit(
-                "legacy-conversion-progress",
-                serde_json::json!({
-                    "id": item.id,
-                    "status": res.status,
-                    "progress": 100,
-                    "target_size": res.target_size,
-                    "time_ms": res.time_ms,
-                    "error_message": res.error_message
-                }),
-            );
+        let res = convert_single_jxl_to_legacy(&item, &profile);
 
-            res
-        })
-        .collect()
+        let _ = app.emit(
+            "legacy-conversion-progress",
+            serde_json::json!({
+                "id": item.id,
+                "status": res.status,
+                "progress": 100,
+                "target_size": res.target_size,
+                "time_ms": res.time_ms,
+                "error_message": res.error_message
+            }),
+        );
+
+        results.push(res);
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+
+    results
 }
 
 pub fn execute_legacy_folder_batch(
@@ -264,9 +280,7 @@ pub fn execute_legacy_folder_batch(
     folder_path: &str,
     profile: LegacyExportProfile,
 ) -> Result<super::batch::BatchSummary, String> {
-    use rayon::prelude::*;
-    use std::sync::Arc;
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    super::batch::reset_cancel_flag();
     use std::path::PathBuf;
 
     let dir = PathBuf::from(folder_path);
@@ -274,7 +288,8 @@ pub fn execute_legacy_folder_batch(
         return Err(format!("Not a valid directory: {}", folder_path));
     }
 
-    let jxl_paths = super::formats::scan_folder_for_jxl(&dir);
+    let scanned = super::formats::scan_folder_for_jxl_with_size(&dir);
+    let jxl_paths = scanned.paths;
     let total_count = jxl_paths.len();
     if total_count == 0 {
         return Ok(super::batch::BatchSummary {
@@ -291,12 +306,28 @@ pub fn execute_legacy_folder_batch(
     }
 
     let start_all = Instant::now();
-    let completed_count = Arc::new(AtomicUsize::new(0));
-    let failed_count = Arc::new(AtomicUsize::new(0));
-    let orig_bytes = Arc::new(std::sync::atomic::AtomicU64::new(0));
-    let target_bytes = Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let mut completed_count = 0usize;
+    let mut failed_count = 0usize;
+    let mut orig_bytes = 0u64;
+    let mut target_bytes = 0u64;
 
-    jxl_paths.par_iter().for_each(|path| {
+    for (idx, path) in jxl_paths.iter().enumerate() {
+        if super::batch::is_batch_cancelled() {
+            let _ = app.emit(
+                "legacy-folder-conversion-progress",
+                super::batch::FolderBatchProgress {
+                    total: total_count,
+                    completed: completed_count,
+                    failed: failed_count,
+                    current_file: "Conversion stopped by user".to_string(),
+                    orig_bytes_completed: orig_bytes,
+                    target_bytes_completed: target_bytes,
+                    is_done: true,
+                },
+            );
+            break;
+        }
+
         let path_str = path.to_string_lossy();
         let file_name = path
             .file_name()
@@ -304,50 +335,59 @@ pub fn execute_legacy_folder_batch(
             .unwrap_or("image.jxl")
             .to_string();
 
-        if let Ok(item) = super::formats::inspect_image_without_thumbnail(&path_str) {
-            let res = convert_single_jxl_to_legacy(&item, &profile);
-            if res.status == "done" {
-                completed_count.fetch_add(1, Ordering::SeqCst);
-                if let Some(target) = res.target_size {
-                    target_bytes.fetch_add(target, Ordering::SeqCst);
-                }
-                orig_bytes.fetch_add(item.orig_size, Ordering::SeqCst);
-            } else {
-                failed_count.fetch_add(1, Ordering::SeqCst);
-            }
-        } else {
-            failed_count.fetch_add(1, Ordering::SeqCst);
-        }
-
-        let done = completed_count.load(Ordering::SeqCst);
-        let fails = failed_count.load(Ordering::SeqCst);
         let _ = app.emit(
             "legacy-folder-conversion-progress",
             super::batch::FolderBatchProgress {
                 total: total_count,
-                completed: done,
-                failed: fails,
-                current_file: file_name,
-                orig_bytes_completed: orig_bytes.load(Ordering::SeqCst),
-                target_bytes_completed: target_bytes.load(Ordering::SeqCst),
+                completed: completed_count,
+                failed: failed_count,
+                current_file: format!("Unpacking ({}/{}): {}", idx + 1, total_count, file_name),
+                orig_bytes_completed: orig_bytes,
+                target_bytes_completed: target_bytes,
                 is_done: false,
             },
         );
-    });
+
+        if let Ok(item) = super::formats::inspect_image_without_thumbnail(&path_str) {
+            let res = convert_single_jxl_to_legacy(&item, &profile);
+            if res.status == "done" {
+                completed_count += 1;
+                if let Some(target) = res.target_size {
+                    target_bytes += target;
+                }
+                orig_bytes += item.orig_size;
+            } else {
+                failed_count += 1;
+            }
+        } else {
+            failed_count += 1;
+        }
+
+        let _ = app.emit(
+            "legacy-folder-conversion-progress",
+            super::batch::FolderBatchProgress {
+                total: total_count,
+                completed: completed_count,
+                failed: failed_count,
+                current_file: file_name,
+                orig_bytes_completed: orig_bytes,
+                target_bytes_completed: target_bytes,
+                is_done: false,
+            },
+        );
+
+        // Cooperative cooling & OS scheduling yield
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
 
     let total_elapsed = start_all.elapsed().as_millis() as u64;
-    let final_orig = orig_bytes.load(Ordering::SeqCst);
-    let final_target = target_bytes.load(Ordering::SeqCst);
-    let final_completed = completed_count.load(Ordering::SeqCst);
-    let final_failed = failed_count.load(Ordering::SeqCst);
-
-    let savings_bytes = if final_orig > final_target {
-        (final_orig - final_target) as i64
+    let savings_bytes = if orig_bytes > target_bytes {
+        (orig_bytes - target_bytes) as i64
     } else {
         0
     };
-    let savings_percent = if final_orig > 0 {
-        ((savings_bytes as f64 / final_orig as f64) * 100.0) as i32
+    let savings_percent = if orig_bytes > 0 {
+        ((savings_bytes as f64 / orig_bytes as f64) * 100.0) as i32
     } else {
         0
     };
@@ -356,21 +396,25 @@ pub fn execute_legacy_folder_batch(
         "legacy-folder-conversion-progress",
         super::batch::FolderBatchProgress {
             total: total_count,
-            completed: final_completed,
-            failed: final_failed,
-            current_file: "Completed".to_string(),
-            orig_bytes_completed: final_orig,
-            target_bytes_completed: final_target,
+            completed: completed_count,
+            failed: failed_count,
+            current_file: if super::batch::is_batch_cancelled() {
+                "Stopped".to_string()
+            } else {
+                "Completed".to_string()
+            },
+            orig_bytes_completed: orig_bytes,
+            target_bytes_completed: target_bytes,
             is_done: true,
         },
     );
 
     Ok(super::batch::BatchSummary {
         total_items: total_count,
-        completed_items: final_completed,
-        failed_items: final_failed,
-        orig_total_bytes: final_orig,
-        target_total_bytes: final_target,
+        completed_items: completed_count,
+        failed_items: failed_count,
+        orig_total_bytes: orig_bytes,
+        target_total_bytes: target_bytes,
         total_savings_bytes: savings_bytes,
         total_savings_percent: savings_percent,
         total_duration_ms: total_elapsed,

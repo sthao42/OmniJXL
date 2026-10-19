@@ -25,6 +25,7 @@ pub fn run() {
             cmd_handle_dropped_paths,
             cmd_convert_folder_batch,
             cmd_convert_legacy_folder_batch,
+            cmd_cancel_batch,
         ])
         .run(tauri::generate_context!())
         .expect("error while running OmniJXL application");

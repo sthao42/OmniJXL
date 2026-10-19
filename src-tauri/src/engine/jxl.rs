@@ -238,10 +238,22 @@ pub fn convert_single_image(item: &ImageItemInfo, profile: &EncodingProfile) -> 
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x08000000);
+        // CREATE_NO_WINDOW (0x08000000) | BELOW_NORMAL_PRIORITY_CLASS (0x00004000)
+        // Ensures Windows Desktop Window Manager and GUI threads are prioritized, preventing UI freezes
+        cmd.creation_flags(0x08000000 | 0x00004000);
     }
+    cmd.stdin(std::process::Stdio::null());
+    cmd.stdout(std::process::Stdio::piped());
+    cmd.stderr(std::process::Stdio::piped());
     cmd.arg(&abs_input);
     cmd.arg(&abs_target);
+
+    // Limit worker threads to 2-4 threads max so CPU avoids thermal/power throttling
+    let sys_threads = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4);
+    let worker_threads = (sys_threads / 2).clamp(1, 4);
+    cmd.arg(format!("--num_threads={}", worker_threads));
 
     // Compression Mode & Distance
     if profile.is_lossless {
@@ -292,8 +304,9 @@ pub fn convert_single_image(item: &ImageItemInfo, profile: &EncodingProfile) -> 
 
     cmd.arg("--quiet");
 
-    // Execute command
-    match cmd.output() {
+    // Execute command with 120s timeout and instant cancellation check
+    let timeout = std::time::Duration::from_secs(120);
+    match run_command_with_timeout(cmd, timeout, super::batch::is_batch_cancelled) {
         Ok(output) => {
             let elapsed_ms = start_time.elapsed().as_millis() as u64;
 
@@ -379,6 +392,50 @@ pub fn convert_single_image(item: &ImageItemInfo, profile: &EncodingProfile) -> 
                 savings_percent: None,
                 time_ms: Some(elapsed_ms),
                 error_message: Some(format!("Failed to spawn cjxl process: {}", e)),
+            }
+        }
+    }
+}
+
+pub fn run_command_with_timeout(
+    mut cmd: Command,
+    timeout: std::time::Duration,
+    check_cancelled: impl Fn() -> bool,
+) -> Result<std::process::Output, String> {
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| format!("Failed to spawn process: {}", e))?;
+
+    let start = Instant::now();
+    loop {
+        if check_cancelled() {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err("Operation cancelled by user".to_string());
+        }
+
+        match child.try_wait() {
+            Ok(Some(_status)) => {
+                let output = child
+                    .wait_with_output()
+                    .map_err(|e| format!("Failed to read process output: {}", e))?;
+                return Ok(output);
+            }
+            Ok(None) => {
+                if start.elapsed() > timeout {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(format!(
+                        "Process timed out after {} seconds and was terminated",
+                        timeout.as_secs()
+                    ));
+                }
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            Err(e) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(format!("Error waiting for process: {}", e));
             }
         }
     }

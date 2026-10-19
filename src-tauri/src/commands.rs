@@ -6,7 +6,8 @@ use tauri_plugin_opener::OpenerExt;
 use crate::engine::batch::execute_batch;
 use crate::engine::detector::{SystemInfo, get_system_info};
 use crate::engine::formats::{
-    ImageItemInfo, inspect_image, scan_folder_for_images, scan_folder_for_jxl,
+    ImageItemInfo, inspect_image, inspect_image_without_thumbnail,
+    scan_folder_for_images_with_size, scan_folder_for_jxl_with_size,
 };
 use crate::engine::jxl::{
     ConversionResult, EncodingProfile, convert_single_image, resolve_destination_folder,
@@ -23,8 +24,14 @@ pub fn cmd_get_system_info() -> SystemInfo {
 #[command]
 pub fn cmd_inspect_images(paths: Vec<String>) -> Vec<ImageItemInfo> {
     let mut items = Vec::new();
+    let generate_thumbnails = paths.len() <= 64;
     for path in paths {
-        if let Ok(info) = inspect_image(&path) {
+        let res = if generate_thumbnails {
+            inspect_image(&path)
+        } else {
+            inspect_image_without_thumbnail(&path)
+        };
+        if let Ok(info) = res {
             items.push(info);
         }
     }
@@ -37,12 +44,16 @@ pub fn cmd_convert_single(item: ImageItemInfo, profile: EncodingProfile) -> Conv
 }
 
 #[command]
-pub fn cmd_convert_batch(
+pub async fn cmd_convert_batch(
     app: AppHandle,
     items: Vec<ImageItemInfo>,
     profile: EncodingProfile,
-) -> Vec<ConversionResult> {
-    execute_batch(&app, items, profile)
+) -> Result<Vec<ConversionResult>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        execute_batch(&app, items, profile)
+    })
+    .await
+    .map_err(|e| format!("Batch execution thread error: {}", e))
 }
 
 #[command]
@@ -118,12 +129,16 @@ pub fn cmd_convert_legacy_single(
 }
 
 #[command]
-pub fn cmd_convert_legacy_batch(
+pub async fn cmd_convert_legacy_batch(
     app: AppHandle,
     items: Vec<ImageItemInfo>,
     profile: LegacyExportProfile,
-) -> Vec<ConversionResult> {
-    execute_legacy_batch(&app, items, profile)
+) -> Result<Vec<ConversionResult>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        execute_legacy_batch(&app, items, profile)
+    })
+    .await
+    .map_err(|e| format!("Legacy batch execution thread error: {}", e))
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -146,19 +161,13 @@ pub fn cmd_scan_folder_summary(path: String) -> Result<FolderScanSummary, String
         .unwrap_or("Folder")
         .to_string();
 
-    let image_paths = scan_folder_for_images(&folder_path);
-    let mut total_bytes = 0u64;
-    for p in &image_paths {
-        if let Ok(meta) = std::fs::metadata(p) {
-            total_bytes += meta.len();
-        }
-    }
+    let scanned = scan_folder_for_images_with_size(&folder_path);
 
     Ok(FolderScanSummary {
         folder_path: path,
         folder_name,
-        image_count: image_paths.len(),
-        total_bytes,
+        image_count: scanned.paths.len(),
+        total_bytes: scanned.total_bytes,
     })
 }
 
@@ -174,19 +183,13 @@ pub fn cmd_scan_folder_jxl_summary(path: String) -> Result<FolderScanSummary, St
         .unwrap_or("Folder")
         .to_string();
 
-    let jxl_paths = scan_folder_for_jxl(&folder_path);
-    let mut total_bytes = 0u64;
-    for p in &jxl_paths {
-        if let Ok(meta) = std::fs::metadata(p) {
-            total_bytes += meta.len();
-        }
-    }
+    let scanned = scan_folder_for_jxl_with_size(&folder_path);
 
     Ok(FolderScanSummary {
         folder_path: path,
         folder_name,
-        image_count: jxl_paths.len(),
-        total_bytes,
+        image_count: scanned.paths.len(),
+        total_bytes: scanned.total_bytes,
     })
 }
 
@@ -204,6 +207,7 @@ pub fn cmd_handle_dropped_paths(paths: Vec<String>, is_jxl_mode: bool) -> Proces
     let mut folder_summary = None;
     let mut total_folders = 0;
     let mut total_files = 0;
+    let generate_thumbnails = paths.len() <= 64;
 
     for path_str in paths {
         let path = PathBuf::from(&path_str);
@@ -215,22 +219,16 @@ pub fn cmd_handle_dropped_paths(paths: Vec<String>, is_jxl_mode: bool) -> Proces
                     .and_then(|n| n.to_str())
                     .unwrap_or("Folder")
                     .to_string();
-                let child_paths = if is_jxl_mode {
-                    scan_folder_for_jxl(&path)
+                let scanned = if is_jxl_mode {
+                    scan_folder_for_jxl_with_size(&path)
                 } else {
-                    scan_folder_for_images(&path)
+                    scan_folder_for_images_with_size(&path)
                 };
-                let mut total_bytes = 0u64;
-                for p in &child_paths {
-                    if let Ok(m) = std::fs::metadata(p) {
-                        total_bytes += m.len();
-                    }
-                }
                 folder_summary = Some(FolderScanSummary {
                     folder_path: path_str.clone(),
                     folder_name,
-                    image_count: child_paths.len(),
-                    total_bytes,
+                    image_count: scanned.paths.len(),
+                    total_bytes: scanned.total_bytes,
                 });
             }
         } else if path.is_file() {
@@ -244,10 +242,15 @@ pub fn cmd_handle_dropped_paths(paths: Vec<String>, is_jxl_mode: bool) -> Proces
                 true
             };
 
-            if is_supported
-                && let Ok(info) = inspect_image(&path_str)
-            {
-                items.push(info);
+            if is_supported {
+                let res = if generate_thumbnails {
+                    inspect_image(&path_str)
+                } else {
+                    inspect_image_without_thumbnail(&path_str)
+                };
+                if let Ok(info) = res {
+                    items.push(info);
+                }
             }
         }
     }
@@ -261,21 +264,34 @@ pub fn cmd_handle_dropped_paths(paths: Vec<String>, is_jxl_mode: bool) -> Proces
 }
 
 #[command]
-pub fn cmd_convert_folder_batch(
+pub async fn cmd_convert_folder_batch(
     app: AppHandle,
     folder_path: String,
     profile: EncodingProfile,
 ) -> Result<crate::engine::batch::BatchSummary, String> {
-    crate::engine::batch::execute_folder_batch(&app, &folder_path, profile)
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::engine::batch::execute_folder_batch(&app, &folder_path, profile)
+    })
+    .await
+    .map_err(|e| format!("Folder batch task failed: {}", e))?
 }
 
 #[command]
-pub fn cmd_convert_legacy_folder_batch(
+pub async fn cmd_convert_legacy_folder_batch(
     app: AppHandle,
     folder_path: String,
     profile: LegacyExportProfile,
 ) -> Result<crate::engine::batch::BatchSummary, String> {
-    crate::engine::legacy::execute_legacy_folder_batch(&app, &folder_path, profile)
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::engine::legacy::execute_legacy_folder_batch(&app, &folder_path, profile)
+    })
+    .await
+    .map_err(|e| format!("Legacy folder batch task failed: {}", e))?
+}
+
+#[command]
+pub fn cmd_cancel_batch() {
+    crate::engine::batch::cancel_batch();
 }
 
 
