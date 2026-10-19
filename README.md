@@ -176,17 +176,38 @@ At the bottom of the window, OmniJXL displays real-time aggregate size metrics:
 
 ---
 
+## Browser & Operating System Support
+
+JPEG XL (`.jxl`) adoption is expanding across modern web browsers and desktop environments:
+
+### Web Browsers
+
+| Browser | Version | Support Level | Details |
+|:---|:---:|:---:|:---|
+| **Google Chrome** | **155+** | Supported | Disabled by default (toggle via `chrome://flags#enable-jxl`) |
+| **Mozilla Firefox** | **158+** | Supported | Disabled by default (toggle via `about:config` → `image.jxl.enabled`) |
+| **Apple Safari** | **17+** | Partial support | Enabled by default (native rendering in Safari & WebKit on macOS Sonoma & iOS 17+) |
+
+### Operating Systems & Shell Previews
+
+| Operating System | Support Status | Setup & Details |
+|:---|:---:|:---|
+| **macOS** | **Native Support** | Supports JPEG XL natively starting with **macOS 14 Sonoma and later** (Finder, Quick Look, Preview, Photos, and Safari). |
+| **Windows** | **Official Extension** | Install the official [Microsoft JPEG XL Extension](https://apps.microsoft.com/detail/9mzprth5c0tb?hl=en-US&gl=US) from the Microsoft Store for File Explorer thumbnail previews and Photos viewing. |
+
+---
+
 ## Build & Installation
 
 ### Prerequisites
 * [Rust](https://rustup.rs/) (version 1.99.1 or higher)
-* [Node.js](https://nodejs.org/) (version 20 or higher) and `npm`
+* [Node.js](https://nodejs.org/) (version 24 or higher) and `npm`
 * Visual Studio C++ Build Tools (on Windows)
 
 ### Development Mode
 ```bash
 # Clone the repository
-git clone https://github.com/your-username/OmniJXL.git
+git clone https://github.com/sthao42/OmniJXL.git
 cd OmniJXL
 
 # Install frontend dependencies
