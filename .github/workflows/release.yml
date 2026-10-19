@@ -1,6 +1,6 @@
 name: 'Release & Production Build'
 
-on:
+'on':
   push:
     tags:
       - 'v*'
@@ -20,7 +20,7 @@ on:
 
 jobs:
   build-and-release:
-    name: ${{ matrix.platform == 'macos-latest' && 'macOS Universal (Apple Silicon & Intel)' || 'Windows x86_64 (.exe & .msi)' }}
+    name: ${{ matrix.name }}
     permissions:
       contents: write
     strategy:
@@ -29,12 +29,14 @@ jobs:
         include:
           # Windows Runner: Builds standalone .exe, NSIS installer (.exe), and WiX (.msi)
           - platform: 'windows-latest'
+            name: 'Windows x86_64 (.exe & .msi)'
             target: 'x86_64-pc-windows-msvc'
             args: '--target x86_64-pc-windows-msvc'
             artifact_name: 'OmniJXL-Windows-x64'
 
           # macOS Runner: Native Apple Silicon VM building Universal Binary (M1/M2/M3/M4 & Intel) .dmg
           - platform: 'macos-latest'
+            name: 'macOS Universal (Apple Silicon & Intel)'
             target: 'universal-apple-darwin'
             args: '--target universal-apple-darwin'
             artifact_name: 'OmniJXL-macOS-Universal'
@@ -65,7 +67,7 @@ jobs:
       - name: Install macOS Dependencies
         if: matrix.platform == 'macos-latest'
         run: |
-          brew install jpeg-xl
+          brew install jpeg-xl || true
 
       - name: Install Windows Dependencies
         if: matrix.platform == 'windows-latest'
@@ -95,10 +97,10 @@ jobs:
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
-          tagName: ${{ github.ref_type == 'tag' && github.ref_name || inputs.release_tag }}
-          releaseName: 'OmniJXL ${{ github.ref_type == 'tag' && github.ref_name || inputs.release_tag }}'
+          tagName: v__VERSION__
+          releaseName: "OmniJXL v__VERSION__"
           releaseBody: |
-            ## OmniJXL Production Release
+            ## OmniJXL v__VERSION__ Production Release
 
             High-performance, bidirectional JPEG XL conversion engine with full ComfyUI workflow preservation and defensive memory limits.
 
@@ -127,14 +129,14 @@ jobs:
           }
 
       - name: Attach Standalone Executable to GitHub Release
-        if: matrix.platform == 'windows-latest' && (github.ref_type == 'tag' || (github.event_name == 'workflow_dispatch' && inputs.release_tag != ''))
+        if: matrix.platform == 'windows-latest' && startsWith(github.ref, 'refs/tags/v')
         shell: bash
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG="${{ github.ref_type == 'tag' && github.ref_name || inputs.release_tag }}"
           if [ -f "OmniJXL_standalone_x64.exe" ]; then
-            gh release upload "$TAG" OmniJXL_standalone_x64.exe --clobber || true
+            gh release upload "${{ github.ref_name }}" OmniJXL_standalone_x64.exe --clobber || true
           fi
 
       - name: Upload Build Artifacts
