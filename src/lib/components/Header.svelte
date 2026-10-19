@@ -25,16 +25,16 @@
     $activeTabStore === 'encode' ? $itemsStore.length : $legacyItemsStore.length;
 </script>
 
-<header class="h-11 bg-surface-850 border-b border-white/5 flex items-center justify-between px-4 shrink-0 z-50 select-none gap-4">
+<header class="h-12 bg-surface-850 border-b border-white/5 flex items-center justify-between px-4 shrink-0 z-50 select-none gap-4">
   <div class="flex items-center space-x-3 shrink-0">
     <!-- App Identity -->
-    <div class="flex items-center space-x-2">
+    <div class="flex items-center space-x-2.5">
       <img
         src="/app-icon.png"
         alt="OmniJXL Logo"
-        class="w-5 h-5 rounded shadow-sm shadow-jxl-teal/20 object-contain"
+        class="w-7 h-7 rounded-md shadow-sm shadow-jxl-teal/20 object-contain"
       />
-      <span class="text-xs font-semibold tracking-wider text-slate-200">OmniJXL</span>
+      <span class="text-sm font-semibold tracking-wider text-slate-100">OmniJXL</span>
       <span class="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-emerald-400 font-mono border border-emerald-500/20">
         {$systemStore.libjxl_version} · Rayon x{$systemStore.threads}
       </span>

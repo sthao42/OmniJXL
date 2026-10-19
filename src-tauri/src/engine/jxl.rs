@@ -248,11 +248,15 @@ pub fn convert_single_image(item: &ImageItemInfo, profile: &EncodingProfile) -> 
     cmd.arg(&abs_input);
     cmd.arg(&abs_target);
 
-    // Limit worker threads to 2-4 threads max so CPU avoids thermal/power throttling
+    // Scale worker threads up to 6-8 threads max while reserving cores for OS/GUI
     let sys_threads = std::thread::available_parallelism()
         .map(|n| n.get())
         .unwrap_or(4);
-    let worker_threads = (sys_threads / 2).clamp(1, 4);
+    let worker_threads = if sys_threads <= 4 {
+        (sys_threads.saturating_sub(1)).max(1)
+    } else {
+        (sys_threads.saturating_sub(2)).clamp(2, 8)
+    };
     cmd.arg(format!("--num_threads={}", worker_threads));
 
     // Compression Mode & Distance
@@ -292,8 +296,13 @@ pub fn convert_single_image(item: &ImageItemInfo, profile: &EncodingProfile) -> 
     }
 
     // Reversible JPEG transcode handling
-    let is_jpeg =
-        item.format.to_uppercase().contains("JPEG") || item.format.to_uppercase().contains("JPG");
+    let is_jpeg = item.format.to_uppercase().contains("JPEG")
+        || item.format.to_uppercase().contains("JPG")
+        || source_path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.eq_ignore_ascii_case("jpg") || e.eq_ignore_ascii_case("jpeg"))
+            .unwrap_or(false);
     if is_jpeg {
         if profile.reversible_jpeg {
             cmd.arg("-j").arg("1");
@@ -430,7 +439,7 @@ pub fn run_command_with_timeout(
                         timeout.as_secs()
                     ));
                 }
-                std::thread::sleep(std::time::Duration::from_millis(50));
+                std::thread::sleep(std::time::Duration::from_millis(10));
             }
             Err(e) => {
                 let _ = child.kill();

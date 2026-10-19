@@ -254,28 +254,33 @@
   <div class="p-4 bg-surface-850/80 border-t border-white/5 text-xs space-y-2">
     <div class="flex items-center justify-between">
       <label for="dest-folder-input" class="text-slate-400 font-medium block">Destination Folder</label>
-      <button
-        on:click={handleOpenFolder}
-        class="text-jxl-teal hover:text-teal-300 text-[10px] flex items-center space-x-1 cursor-pointer"
-        title="Open destination folder in Explorer"
-      >
-        <FolderOpen class="w-3 h-3" />
-        <span>Open</span>
-      </button>
     </div>
     <div class="flex items-center space-x-2">
       <input
         id="dest-folder-input"
         type="text"
         bind:value={$settingsStore.dest_folder}
+        placeholder="Default: ~/Pictures/JXL_Exports"
         class="flex-1 bg-surface-900 border border-white/10 rounded-lg px-2.5 py-1.5 text-slate-300 font-mono text-[11px] focus:outline-none focus:border-jxl-teal/50"
       />
       <button
+        type="button"
         on:click={handleBrowseFolder}
-        class="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs transition-colors cursor-pointer"
+        class="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs transition-colors flex items-center space-x-1 cursor-pointer"
+        title="Browse Destination Folder"
       >
-        Browse
+        <FolderOpen class="w-3.5 h-3.5" />
+        <span>Browse</span>
       </button>
     </div>
+
+    <button
+      type="button"
+      on:click={handleOpenFolder}
+      class="w-full py-1.5 rounded-lg bg-surface-850 hover:bg-surface-800 border border-white/5 text-slate-400 hover:text-slate-200 transition-colors flex items-center justify-center space-x-1.5 cursor-pointer text-[11px]"
+    >
+      <ExternalLink class="w-3.5 h-3.5" />
+      <span>Open Destination in File Explorer</span>
+    </button>
   </div>
 </aside>

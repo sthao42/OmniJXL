@@ -89,7 +89,7 @@ pub fn execute_batch(
         );
 
         results.push(res);
-        std::thread::sleep(std::time::Duration::from_millis(50));
+        std::thread::sleep(std::time::Duration::from_millis(15));
     }
 
     results
@@ -210,8 +210,8 @@ pub fn execute_folder_batch(
             },
         );
 
-        // Cooperative cooling & OS scheduling yield
-        std::thread::sleep(std::time::Duration::from_millis(50));
+        // Cooperative cooling & OS scheduling yield (15ms keeps GUI responsive while maximizing throughput)
+        std::thread::sleep(std::time::Duration::from_millis(15));
     }
 
     let total_elapsed = start_all.elapsed().as_millis() as u64;

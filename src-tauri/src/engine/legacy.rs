@@ -136,7 +136,11 @@ pub fn convert_single_jxl_to_legacy(
     let sys_threads = std::thread::available_parallelism()
         .map(|n| n.get())
         .unwrap_or(4);
-    let worker_threads = (sys_threads / 2).clamp(1, 4);
+    let worker_threads = if sys_threads <= 4 {
+        (sys_threads.saturating_sub(1)).max(1)
+    } else {
+        (sys_threads.saturating_sub(2)).clamp(2, 8)
+    };
     cmd.arg(format!("--num_threads={}", worker_threads));
 
     if target_ext == "jpg" && !profile.reconstruct_jpeg {
@@ -269,7 +273,7 @@ pub fn execute_legacy_batch(
         );
 
         results.push(res);
-        std::thread::sleep(std::time::Duration::from_millis(50));
+        std::thread::sleep(std::time::Duration::from_millis(15));
     }
 
     results
@@ -376,8 +380,8 @@ pub fn execute_legacy_folder_batch(
             },
         );
 
-        // Cooperative cooling & OS scheduling yield
-        std::thread::sleep(std::time::Duration::from_millis(50));
+        // Cooperative cooling & OS scheduling yield (15ms keeps GUI responsive while maximizing throughput)
+        std::thread::sleep(std::time::Duration::from_millis(15));
     }
 
     let total_elapsed = start_all.elapsed().as_millis() as u64;
