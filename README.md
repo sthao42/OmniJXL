@@ -50,6 +50,7 @@ JPEG XL (`.jxl`) adoption is expanding across modern web browsers and desktop en
 |:---|:---:|:---|
 | **macOS** | **Native Support** | Supports JPEG XL natively starting with **macOS 14 Sonoma and later** (Finder, Quick Look, Preview, Photos, and Safari). |
 | **Windows** | **Official Extension** | Install the official [Microsoft JPEG XL Extension](https://apps.microsoft.com/detail/9mzprth5c0tb?hl=en-US&gl=US) from the Microsoft Store for File Explorer thumbnail previews and Photos viewing. |
+| **Linux** | **Native via `libjxl`** | Supported via `kimageformats` (KDE / Dolphin), `gdk-pixbuf` (GNOME / Nautilus), and `libjxl-tools`. |
 
 ---
 
