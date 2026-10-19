@@ -32,6 +32,27 @@ Whether archiving terabytes of photography, preparing responsive web assets, or 
 
 ---
 
+## Browser & Operating System Support
+
+JPEG XL (`.jxl`) adoption is expanding across modern web browsers and desktop environments:
+
+### Web Browsers
+
+| Browser | Version | Support Level | Details |
+|:---|:---:|:---:|:---|
+| **Google Chrome** | **155+** | Supported | Enabled by Default (toggle via `chrome://flags#enable-jxl`) |
+| **Mozilla Firefox** | **158+** | Supported | Enabled by default (toggle via `about:config` → `image.jxl.enabled`) |
+| **Apple Safari** | **17+** | Partial support | Enabled by default (native rendering in Safari & WebKit on macOS Sonoma & iOS 17+) |
+
+### Operating Systems & Shell Previews
+
+| Operating System | Support Status | Setup & Details |
+|:---|:---:|:---|
+| **macOS** | **Native Support** | Supports JPEG XL natively starting with **macOS 14 Sonoma and later** (Finder, Quick Look, Preview, Photos, and Safari). |
+| **Windows** | **Official Extension** | Install the official [Microsoft JPEG XL Extension](https://apps.microsoft.com/detail/9mzprth5c0tb?hl=en-US&gl=US) from the Microsoft Store for File Explorer thumbnail previews and Photos viewing. |
+
+---
+
 ## Why JPEG XL (`.jxl`)?
 
 JPEG XL is the royalty-free image standard developed by the Joint Photographic Experts Group (ISO/IEC JTC 1/SC 29/WG 1). It was created from the ground up to replace JPEG, PNG, GIF, WebP, and AVIF by combining all their individual strengths into a single universal format.
@@ -173,27 +194,6 @@ At the bottom of the window, OmniJXL displays real-time aggregate size metrics:
 | **OpenEXR** | `.exr` | High dynamic range buffer | Float32 Modular / VarDCT | `.png` / `.jpg` |
 | **HDR** | `.hdr` | Radiance RGBE float buffer | Float32 Modular / VarDCT | `.png` / `.jpg` |
 | **Camera RAW** | `.cr2`, `.nef`, `.arw`, `.dng` | RAW ingestion | High-Effort Modular | `.png` / `.jpg` |
-
----
-
-## Browser & Operating System Support
-
-JPEG XL (`.jxl`) adoption is expanding across modern web browsers and desktop environments:
-
-### Web Browsers
-
-| Browser | Version | Support Level | Details |
-|:---|:---:|:---:|:---|
-| **Google Chrome** | **155+** | Supported | Disabled by default (toggle via `chrome://flags#enable-jxl`) |
-| **Mozilla Firefox** | **158+** | Supported | Disabled by default (toggle via `about:config` → `image.jxl.enabled`) |
-| **Apple Safari** | **17+** | Partial support | Enabled by default (native rendering in Safari & WebKit on macOS Sonoma & iOS 17+) |
-
-### Operating Systems & Shell Previews
-
-| Operating System | Support Status | Setup & Details |
-|:---|:---:|:---|
-| **macOS** | **Native Support** | Supports JPEG XL natively starting with **macOS 14 Sonoma and later** (Finder, Quick Look, Preview, Photos, and Safari). |
-| **Windows** | **Official Extension** | Install the official [Microsoft JPEG XL Extension](https://apps.microsoft.com/detail/9mzprth5c0tb?hl=en-US&gl=US) from the Microsoft Store for File Explorer thumbnail previews and Photos viewing. |
 
 ---
 
