@@ -30,6 +30,7 @@ Whether archiving terabytes of photography, preparing responsive web assets, or 
 * **Parallel Multithreading**: Work-stealing CPU saturation powered by **Rayon** and hardware **AVX2 SIMD** acceleration.
 * **Live File Size Tracking**: Dynamic status bar showing initial file size in **Red** and converted file size in **Green** in `"MB"`.
 
+<a href="static/example.png"><img src="static/example.png" alt="App_screenshot" width="480" /></a>
 ---
 
 ## Browser & Operating System Support
