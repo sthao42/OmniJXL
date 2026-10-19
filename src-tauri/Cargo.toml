@@ -1,6 +1,6 @@
 [package]
 name = "omnijxl"
-version = "0.1.0"
+version = "1.0.0"
 description = "OmniJXL - High Performance JPEG XL Converter"
 authors = ["OmniJXL Team"]
 edition = "2024"
