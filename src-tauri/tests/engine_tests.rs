@@ -46,9 +46,11 @@ fn test_format_detection() {
 
 #[test]
 fn test_destination_folder_resolution() {
-    let custom = Some("C:\\OmniExports".to_string());
+    let temp_dir = tempfile::tempdir().expect("Failed to create temp dir");
+    let custom_path = temp_dir.path().join("TestExports");
+    let custom = Some(custom_path.to_string_lossy().to_string());
     let resolved = resolve_destination_folder(&custom, Path::new("C:\\source\\img.png"));
-    assert_eq!(resolved, Path::new("C:\\OmniExports"));
+    assert_eq!(resolved, custom_path);
 
     let empty = None;
     let fallback = resolve_destination_folder(&empty, Path::new("C:\\source\\img.png"));
